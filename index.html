@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>JBI Order XML Generator</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+  <style>
+    body { font-family: Arial, sans-serif; padding: 2rem; background: #f8f8f8; }
+    .container { background: white; padding: 2rem; border-radius: 10px; max-width: 600px; margin: auto; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+    h2 { margin-top: 0; }
+    input[type="file"] { margin: 1rem 0; }
+    button { padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    button:hover { background: #0056b3; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h2>JBI XML Generator</h2>
+    <p>Upload your Shopify CSV and JBI inventory TXT file:</p>
+    <input type="file" id="ordersFile" accept=".csv"><br>
+    <input type="file" id="invFile" accept=".txt"><br>
+    <button onclick="processFiles()">Generate XML ZIP</button>
+    <a id="downloadLink" style="display:none; margin-top: 1rem; display: block;">Download ZIP</a>
+  </div>
+
+  <script>
+    async function processFiles() {
+      const ordersFile = document.getElementById('ordersFile').files[0];
+      const invFile = document.getElementById('invFile').files[0];
+      if (!ordersFile || !invFile) {
+        alert('Please upload both files.');
+        return;
+      }
+
+      const ordersText = await ordersFile.text();
+      const invText = await invFile.text();
+
+      const orders = ordersText.split('\n').slice(1).map(row => row.split(','));
+      const inventory = invText.split('\n').map(row => row.split('\t'));
+
+      const zip = new JSZip();
+      const token = '001Phg5mWA';
+      const accountNumber = '3417';
+      const shipToId = '107';
+
+      const locMap = {FL:'101',NC:'102',NY:'103',AL:'104',IN:'105',PA:'106',MN:'107',TX:'108',CO:'109',WA:'110',CA:'112'};
+
+      orders.forEach(row => {
+        if (!row[20] || !row[0]) return;
+
+        const sku = row[20].replace(')', '').trim();
+        const match = inventory.find(i => i[0] === sku);
+        if (!match) return;
+
+        let locId = '';
+        for (let [state, idx] of Object.entries({FL:1,NC:12,NY:2,AL:3,IN:4,PA:5,MN:6,TX:7,CO:8,WA:9,CA:11})) {
+          if (parseInt(match[idx]) > 0) {
+            locId = locMap[state];
+            break;
+          }
+        }
+        if (!locId) return;
+
+        const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<Order>
+  <Token>${token}</Token>
+  <CustomerOrderNo>${row[0]}</CustomerOrderNo>
+  <PONumber></PONumber>
+  <AccountNumber>${accountNumber}</AccountNumber>
+  <ShipToID>${shipToId}</ShipToID>
+  <EmailAddress>kevin@bossmotto.com</EmailAddress>
+  <ShipDropship>Y</ShipDropship>
+  <Residential>Y</Residential>
+  <DropshipBilling>PREPAY</DropshipBilling>
+  <CarrierID>100011</CarrierID>
+  <DeliveryAddress>
+    <RecipientName>${row[6]}</RecipientName>
+    <Street1>${row[7]}</Street1>
+    <Street2>${row[8]}</Street2>
+    <City>${row[9]}</City>
+    <State>${row[10]}</State>
+    <Zip>${row[11]}</Zip>
+    <Phone>${row[12]}</Phone>
+  </DeliveryAddress>
+  <LineItems>
+    <ItemID>
+      <PartNumber>${sku}</PartNumber>
+      <Qty>${row[21]}</Qty>
+      <LocID>${locId}</LocID>
+    </ItemID>
+  </LineItems>
+</Order>`;
+
+        const orderNo = row[0].replace(/[^0-9]/g, '');
+        zip.file(`JBI-${orderNo}-${accountNumber}.xml`, xml);
+      });
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(blob);
+      const link = document.getElementById('downloadLink');
+      link.href = url;
+      link.download = 'jbi_orders.zip';
+      link.style.display = 'block';
+      link.textContent = '📦 Download ZIP';
+    }
+  </script>
+</body>
+</html>
